@@ -33,7 +33,7 @@ jobs:
 
       - uses: ko-build/setup-ko@v0.9
         env:
-          KO_DOCKER_REPO: ghcr.io/${{ github.repository_owner }}
+          KO_DOCKER_REPO: ghcr.io/${{ github.repository }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -48,9 +48,10 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # base_import_paths appends the cmd directory's basename, so with
-          # this repo it publishes as ghcr.io/excavador/bridge-web. The image
-          # name in the goreleaser labels and the deployment must match
-          # whatever this resolves to -- verified on the first release rather
-          # than assumed.
-          KO_DOCKER_REPO: ghcr.io/${{ github.repository_owner }}
+          # REPOSITORY, not owner. base_import_paths appends the cmd
+          # directory's basename, so this publishes
+          # ghcr.io/excavador/proton-bridge/bridge-web -- the nesting the
+          # truvity repositories use. v0.1.0 had the owner here and published
+          # a bare ghcr.io/excavador/bridge-web, which is why this comment
+          # exists.
+          KO_DOCKER_REPO: ghcr.io/${{ github.repository }}

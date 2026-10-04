@@ -37,8 +37,14 @@ kos:
   #     is CGO and Debian and cannot be a ko build.
   #   - Renovate tracks the tag below, so a Bridge upgrade is a visible bump
   #     here rather than silent drift.
-  #   - ko replaces the entrypoint with the binary. Both containers in the
-  #     pod set `command` explicitly, so nothing depends on it.
+  #   - ko replaces the entrypoint with the binary, which lands at
+  #     /ko-app/bridge-web. Both containers in the pod set `command`
+  #     explicitly, so nothing depends on it.
+  #   - base_import_paths appends the cmd directory's basename to
+  #     KO_DOCKER_REPO. With that set to ghcr.io/excavador/proton-bridge the
+  #     published slug nests as proton-bridge/bridge-web, which is the shape
+  #     the truvity repositories use. The first release set KO_DOCKER_REPO to
+  #     the OWNER instead and published a bare ghcr.io/excavador/bridge-web.
   - id: bridge-web
     build: bridge-web
     base_image: ghcr.io/excavador/proton-bridge:3.27.0 # renovate: docker
@@ -51,7 +57,7 @@ kos:
     base_import_paths: true
     sbom: none
     labels:
-      org.opencontainers.image.title: proton-bridge-web
+      org.opencontainers.image.title: bridge-web
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.source: https://github.com/excavador/proton-bridge
       org.opencontainers.image.licenses: GPL-3.0-only
@@ -64,5 +70,5 @@ changelog:
 
 release:
   footer: |
-    **Image:** `ghcr.io/excavador/proton-bridge-web:{{ .Version }}`
+    **Image:** `ghcr.io/excavador/proton-bridge/bridge-web:{{ .Version }}`
     (`linux/amd64`, `linux/arm64`), built on `ghcr.io/excavador/proton-bridge:3.27.0`.
