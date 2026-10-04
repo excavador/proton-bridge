@@ -108,6 +108,46 @@ preference rather than a container workaround. `libsecret` is installed anyway,
 in both stages, because the secret-service backend is compiled in
 unconditionally and the build fails without its headers.
 
+## `bridge-web` — the two-mode web face
+
+A second image, `ghcr.io/excavador/proton-bridge-web`, adds a small Go service
+to the one above. It has exactly two modes and switches on observable state,
+never on a flag:
+
+| state | what it serves |
+| --- | --- |
+| no account yet | a two-field form: Proton password and 2FA code |
+| logged in | diagnostics from Bridge's log files — sync progress, a live tail |
+
+**Why two modes rather than two services.** Bridge is single-instance: it locks
+its state directory and a second process dies with *another instance is already
+running*. The daemon is only useful once logged in, so the login path runs
+exactly when no daemon holds the lock. The two states cannot overlap.
+
+In a pod the coordination is one marker file, `$HOME/.state`, written only by
+this service after a login Bridge confirmed. The daemon container waits for it:
+
+```sh
+until [ -f /root/.state ]; do sleep 5; done
+exec proton-bridge -n
+```
+
+**What it will not do.** It never renders a credential — Bridge's generated IMAP
+password belongs in a secret store, and a diagnostics page that displays secrets
+is one you cannot safely leave exposed. It runs no shell: the login drives a
+*fixed* command template with the caller's input substituted as values, and any
+input containing `\r` or `\n` is rejected outright, because a newline is the one
+thing that could turn a field into a command.
+
+Diagnostics mode reads files and never shells out, so it cannot contend with the
+running daemon. That also means it cannot offer live CLI commands like `list`;
+those would need Bridge's gRPC interface, which is internal and unversioned, and
+is deliberately not used here.
+
+Put it behind an authenticating proxy. The login mode is gated on state as well
+as on your proxy's auth — with a healthy vault there is no way to ask for it —
+but it is still a login form, and it should not be open to the internet.
+
 ## Licence
 
 Proton Mail Bridge is **GPL-3.0**, and so is this repository: the published

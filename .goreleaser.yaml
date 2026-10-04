@@ -1,0 +1,68 @@
+# Release: one binary and one image, from one tag.
+#
+# The tag is the sole version authority -- it is stamped into the binary and
+# into the image labels, so a page footer, an image label and a deployment
+# never disagree about which build is running.
+project_name: proton-bridge-web
+
+version: 2
+
+builds:
+  - id: bridge-web
+    main: ./cmd/bridge-web
+    binary: bridge-web
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/excavador/proton-bridge/internal/version.Version={{.Version}}
+
+archives:
+  - ids: [bridge-web]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+kos:
+  # NOT a distroless base, and that is the whole point of this file.
+  #
+  # ko's usual base is gcr.io/distroless/static, which would be right for a
+  # web service that only served pages. This one has to drive Bridge's own
+  # CLI to perform a login, so it needs `proton-bridge` itself plus `pass`
+  # and `gnupg` -- Bridge's preferred Linux keychain -- on PATH. The base is
+  # therefore our own Bridge image, and ko layers the Go binary onto it.
+  #
+  # Consequences, stated so nobody is surprised:
+  #   - The base is built by the Dockerfile in this repo and must exist at
+  #     this tag before a release runs. Two pipelines, deliberately: the base
+  #     is CGO and Debian and cannot be a ko build.
+  #   - Renovate tracks the tag below, so a Bridge upgrade is a visible bump
+  #     here rather than silent drift.
+  #   - ko replaces the entrypoint with the binary. Both containers in the
+  #     pod set `command` explicitly, so nothing depends on it.
+  - id: bridge-web
+    build: bridge-web
+    base_image: ghcr.io/excavador/proton-bridge:3.27.0 # renovate: docker
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .IsSnapshot }}latest{{ end }}"
+    platforms: [linux/amd64, linux/arm64]
+    bare: true
+    preserve_import_paths: false
+    base_import_paths: true
+    sbom: none
+    labels:
+      org.opencontainers.image.title: proton-bridge-web
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.source: https://github.com/excavador/proton-bridge
+      org.opencontainers.image.licenses: GPL-3.0-only
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:", "^ci:"]
+
+release:
+  footer: |
+    **Image:** `ghcr.io/excavador/proton-bridge-web:{{ .Version }}`
+    (`linux/amd64`, `linux/arm64`), built on `ghcr.io/excavador/proton-bridge:3.27.0`.

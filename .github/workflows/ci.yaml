@@ -1,0 +1,48 @@
+# Build, vet and test on every change. A release should never be the first
+# time the Go code is compiled.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: gofmt -l . | tee /tmp/fmt && test ! -s /tmp/fmt
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+    env:
+      CGO_ENABLED: "0"
+
+  # Proves the goreleaser config and the ko base together, without publishing.
+  # A snapshot catches a bad base_image or a broken template at PR time
+  # instead of on a tag.
+  goreleaser:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: ko-build/setup-ko@v0.9
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
+        env:
+          KO_DOCKER_REPO: ko.local

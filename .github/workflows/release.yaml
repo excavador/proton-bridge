@@ -1,0 +1,56 @@
+# Release the web binary and its image on a tag.
+#
+# Self-contained on purpose. The truvity repositories call a reusable workflow
+# from truvity/ci-workflows, and the goreleaser config here follows their style
+# closely -- but a personal repository's releases should not depend on an
+# employer's CI repository. That is the same separation the estate keeps in the
+# other direction.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # the GitHub release and its archives
+      packages: write   # ghcr.io
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # goreleaser builds the changelog from history
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: ko-build/setup-ko@v0.9
+        env:
+          KO_DOCKER_REPO: ghcr.io/${{ github.repository_owner }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # base_import_paths appends the cmd directory's basename, so with
+          # this repo it publishes as ghcr.io/excavador/bridge-web. The image
+          # name in the goreleaser labels and the deployment must match
+          # whatever this resolves to -- verified on the first release rather
+          # than assumed.
+          KO_DOCKER_REPO: ghcr.io/${{ github.repository_owner }}
