@@ -1,0 +1,138 @@
+# Build and publish the image for amd64 and arm64.
+#
+# NATIVE RUNNERS, NOT QEMU. Bridge builds with CGO_ENABLED=1 and links
+# libfido2/libcbor/libssl, so cross-compiling it means cross-compiling C.
+# GitHub's arm64 runners are free for public repositories, which makes a
+# two-runner matrix both simpler and an order of magnitude faster than
+# emulating aarch64 under QEMU.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Arch slug
+        id: slug
+        run: echo "value=${{ matrix.platform }}" | sed 's|linux/|value=|' >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # On a pull request this only builds: nothing is published until the
+      # change is on main, so a PR cannot poison the tag anyone pulls.
+      - name: Build
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          outputs: >-
+            ${{ github.event_name == 'pull_request'
+                && 'type=cacheonly'
+                || format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) }}
+          cache-from: type=gha,scope=${{ steps.slug.outputs.value }}
+          cache-to: type=gha,mode=max,scope=${{ steps.slug.outputs.value }}
+
+      - name: Export the digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${{ steps.build.outputs.digest }}"
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: digest-${{ steps.slug.outputs.value }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # One manifest list over the two per-arch images, so `docker pull` picks the
+  # right one and a cluster of mixed architectures needs no tag gymnastics.
+  manifest:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: Dockerfile
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push the manifest list
+        id: push
+        run: |
+          set -euo pipefail
+          v=$(sed -n 's/^ARG BRIDGE_VERSION=\(.*\)$/\1/p' Dockerfile | head -1)
+          [ -n "$v" ] || { echo "could not read BRIDGE_VERSION from the Dockerfile" >&2; exit 1; }
+          v=${v#v}
+          digests=$(ls /tmp/digests)
+          [ -n "$digests" ] || { echo "no per-arch digests were uploaded" >&2; exit 1; }
+
+          # The upstream version is always a tag, so an image is traceable to
+          # the source it was built from without reading its labels.
+          tags=(-t "${IMAGE}:${v}")
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tags+=(-t "${IMAGE}:${GITHUB_REF_NAME}" -t "${IMAGE}:latest")
+          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
+            tags+=(-t "${IMAGE}:main")
+          fi
+
+          # shellcheck disable=SC2046
+          docker buildx imagetools create "${tags[@]}" \
+            $(printf "${IMAGE}@sha256:%s " ${digests})
+          echo "version=${v}" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Show what was published
+        run: docker buildx imagetools inspect "${IMAGE}:${{ steps.push.outputs.version }}"
+        shell: bash

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The pinned upstream Bridge tag. Being silently eight releases behind is the failure this repository exists to prevent, so this manager is the point of it.",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": ["ARG BRIDGE_VERSION=(?<currentValue>v[0-9.]+)"],
+      "depNameTemplate": "ProtonMail/proton-bridge",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Proton marks some releases as pre-release on GitHub while their tags look like ordinary semver (v3.27.1 was one). Take stable releases only; a pre-release can still be pinned by hand.",
+      "matchDepNames": ["ProtonMail/proton-bridge"],
+      "ignoreUnstable": true
+    }
+  ]
+}
