@@ -7,10 +7,14 @@
 # emulating aarch64 under QEMU.
 name: build
 
+# NOT on tags. This repository has TWO independent version lines: the base
+# image is versioned by UPSTREAM Bridge (ARG BRIDGE_VERSION), while git tags
+# version the bridge-web service. Reacting to `v*` here would publish a
+# `proton-bridge:v0.1.0` that is really Bridge 3.27.0, and move `:latest`
+# with it -- labelling the base image with a number that means nothing to it.
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -124,10 +128,12 @@ jobs:
 
           # The upstream version is always a tag, so an image is traceable to
           # the source it was built from without reading its labels.
+          # The upstream version is the only meaningful tag for this image,
+          # plus a floating `main`. `latest` is deliberately NOT published:
+          # it would have to mean "newest Bridge", and Renovate tracks the
+          # pinned ARG instead, so nothing needs a moving target.
           tags=(-t "${IMAGE}:${v}")
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            tags+=(-t "${IMAGE}:${GITHUB_REF_NAME}" -t "${IMAGE}:latest")
-          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
             tags+=(-t "${IMAGE}:main")
           fi
 
